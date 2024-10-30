@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { databaseSchema } from 'src/database/database-schema';
 import { DrizzleService } from 'src/database/drizzle.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateUserDTO } from './dto/create-user.dto';
+import { UpdateUserDTO } from './dto/update-user.dto';
 import { eq } from 'drizzle-orm';
 import { hash } from 'bcrypt';
 
@@ -10,7 +10,7 @@ import { hash } from 'bcrypt';
 export class UsersService {
     constructor(private readonly drizzleService:DrizzleService) {}
 
-    async create(CreateUserDto: CreateUserDto) {
+    async create(CreateUserDto: CreateUserDTO) {
         const {password, ...userWithoutPasswordDto} = CreateUserDto;
 
         const hashedPassword = await hash(password, 10);
@@ -58,7 +58,7 @@ export class UsersService {
         return user;
     }
 
-    async update(id: string, updateUserDto: UpdateUserDto) {
+    async update(id: string, updateUserDto: UpdateUserDTO) {
         const users = await this.drizzleService.db
             .update(databaseSchema.users)
             .set({ ...updateUserDto, updated_at: new Date() })

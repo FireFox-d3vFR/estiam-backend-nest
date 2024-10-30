@@ -1,12 +1,18 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-const passwordValidation = new RegExp(/^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*\W)(?!.* ).{8,20}$/);
+import { passwordValidation } from './shared/user-validation';
 
 export const createUserSchema = z.object({
-    username: z.string().min(1),
-    password: z.string().regex(passwordValidation, {
-        message: "Error password no conform"
-    }),
+  username: z.string().min(1),
+  password: z.string().regex(passwordValidation, {
+    message:
+      'Must contain at least 1 digit, 1 lowercase letter, 1 uppercase letter, 1 special character and be at least 8 characters long',
+  }),
 });
 
-export type CreateUserDto = z.infer<typeof createUserSchema>;
+export type CreateUserSchema = z.infer<typeof createUserSchema>;
+
+export class CreateUserDTO implements CreateUserSchema {
+  username: string;
+  password: string;
+}
