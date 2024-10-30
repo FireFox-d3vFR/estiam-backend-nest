@@ -1,187 +1,94 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { databaseSchema } from 'src/database/database-schema';
+import { DrizzleService } from 'src/database/drizzle.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { eq } from 'drizzle-orm';
 import { hash } from 'bcrypt';
-import { eq, InferInsertModel, sql } from 'drizzle-orm';
-
-import { users } from '@database/database.schema';
-import { DrizzleService } from '@database/drizzle.service';
-
-import { isDBError } from '@utils/database-utils';
-import { JwtUser } from '@utils/types/auth-types';
-import { UserWithoutPasswordReturn } from '@utils/types/users-types';
-
-import { CreateUserDTO } from './dto/create-user.dto';
-import { UpdateUserDTO } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly drizzleService: DrizzleService) {}
+    constructor(private readonly drizzleService:DrizzleService) {}
 
-  userWithtoutPasswordReturn: UserWithoutPasswordReturn<typeof users> = {
-    id: users.id,
-    username: users.username,
-    role: users.role,
-    updated_at: users.updated_at,
-    created_at: users.created_at,
-  };
+    async create(CreateUserDto: CreateUserDto) {
+        const {password, ...userWithoutPasswordDto} = CreateUserDto;
 
-  async create(createUserDTO: CreateUserDTO) {
-    const usersQuery = this.drizzleService.db
-      .insert(users)
-      .values({
-        username: sql.placeholder('username'),
-        password: sql.placeholder('password'),
-      })
-      .returning(this.userWithtoutPasswordReturn)
-      .prepare('create_user');
+        const hashedPassword = await hash(password, 10);
 
-    const { password, ...createUserDTOWithoutPassword } = createUserDTO;
+        const user = await this.drizzleService.db
+            .insert(databaseSchema.users)
+            .values({password: hashedPassword, ...userWithoutPasswordDto})
+            .returning()
+            .catch((err) => {
+                if (err.code === '23505') {
+                    throw new BadRequestException('Username already');
+                }
+                throw new Error();
+            });
 
-    const hashedPassword = await hash(password, 10);
+        return user![0];
+    }
 
-    const createUserPayload: InferInsertModel<typeof users> = {
-      ...createUserDTOWithoutPassword,
-      password: hashedPassword,
-    };
+    async findAll() {
+        const users = await this.drizzleService.db.query.users.findMany();
+        return users;
+    }
 
-    const createdUsers = await usersQuery
-      .execute(createUserPayload)
-      .catch((err) => {
-        if (isDBError(err) && err.code === '23505') {
-          return new BadRequestException('Username already exists');
+    async findOne(id: string) {
+        const user = await this.drizzleService.db.query.users.findFirst({
+            where: (user, { eq }) => eq(user.id, id),
+        });
+
+        if (!user) {
+            throw new NotFoundException(`User with id ${id} not found`);
         }
 
-        return new Error();
-      });
-
-    if (createdUsers instanceof Error) {
-      throw createdUsers;
+        return user;
     }
 
-    return createdUsers[0];
-  }
+    async findByUsername(username: string) {
+        const user = await this.drizzleService.db.query.users.findFirst({
+            where: eq(databaseSchema.users.username, username)
+        })
 
-  async findAll() {
-    const usersQuery = this.drizzleService.db.query.users
-      .findMany({ columns: { password: false } })
-      .prepare('find_all_users');
+        if (!user) {
+            throw new NotFoundException(`User with username ${username} not found`);
+        }
 
-    const foundUsers = await usersQuery.execute();
-
-    return foundUsers;
-  }
-
-  async findOne(id: string, reqUser: JwtUser) {
-    if (reqUser.role !== 'admin' && reqUser.id !== id) {
-      throw new UnauthorizedException('You can only see your data');
+        return user;
     }
 
-    const userQuery = this.drizzleService.db.query.users
-      .findFirst({
-        where: eq(users.id, sql.placeholder('id')),
-        columns: { password: false },
-      })
-      .prepare('find_one_user');
+    async update(id: string, updateUserDto: UpdateUserDto) {
+        const users = await this.drizzleService.db
+            .update(databaseSchema.users)
+            .set({ ...updateUserDto, updated_at: new Date() })
+            .where(eq(databaseSchema.users.id, id))
+            .returning();
 
-    const user = await userQuery.execute({ id });
+        if (users.length === 0) {
+            throw new NotFoundException(`User with id ${id} not found`);
+        }
 
-    if (!user) {
-      throw new NotFoundException(`User with id ${id} not found`);
+        return users[0];
     }
 
-    return user;
-  }
+    async delete(id: string) {
+        // vérifier si l'utilisateur existe avant de le supprimer
+        const user = await this.drizzleService.db.query.users.findFirst({
+            where: (user, { eq }) => eq(user.id, id),
+        });
 
-  async findByUsername(username: string) {
-    const userQuery = this.drizzleService.db.query.users
-      .findFirst({
-        where: eq(users.username, sql.placeholder('username')),
-      })
-      .prepare('find_user_by_username');
+        if (!user) {
+            throw new NotFoundException(`User width id ${id} not found`);
+        }
 
-    const user = await userQuery.execute({ username });
+        // Supprimer l'utilisateur s'il existe
+        const deletedUser = await this.drizzleService.db
+            .delete(databaseSchema.users)
+            .where(eq(databaseSchema.users.id, id))
+            .returning();
 
-    if (!user) {
-      throw new NotFoundException(`User with username ${username} not found`);
+        return deletedUser[0];
     }
 
-    return user;
-  }
-
-  async update(id: string, updateUserDTO: UpdateUserDTO, reqUser: JwtUser) {
-    if (reqUser.role !== 'admin' && reqUser.id !== id) {
-      throw new UnauthorizedException('You can only update your data');
-    }
-
-    if (reqUser.role !== 'admin' && updateUserDTO.role === 'admin') {
-      throw new UnauthorizedException(
-        `Only admin users can update the role property`,
-      );
-    }
-
-    const usersQuery = this.drizzleService.db
-      .update(users)
-      .set({
-        // @ts-expect-error TS bug see : https://github.com/drizzle-team/drizzle-orm/pull/1666
-        username: updateUserDTO.username
-          ? sql.placeholder('username')
-          : undefined,
-        // @ts-expect-error TS bug see : https://github.com/drizzle-team/drizzle-orm/pull/1666
-        password: updateUserDTO.password
-          ? sql.placeholder('password')
-          : undefined,
-        // @ts-expect-error TS bug see : https://github.com/drizzle-team/drizzle-orm/pull/1666
-        role: updateUserDTO.role ? sql.placeholder('role') : undefined,
-        updated_at: new Date(),
-      })
-      .where(eq(users.id, sql.placeholder('id')))
-      .returning(this.userWithtoutPasswordReturn)
-      .prepare('update_user');
-
-    const { password, ...updateUserDTOWithoutPassword } = updateUserDTO;
-
-    let hashedPassword;
-
-    if (password) {
-      hashedPassword = await hash(password, 10);
-    }
-
-    const updateUserPayload: Partial<InferInsertModel<typeof users>> = {
-      ...updateUserDTOWithoutPassword,
-      password: hashedPassword,
-      id,
-    };
-
-    const updatedUsers = await usersQuery.execute(updateUserPayload);
-
-    if (updatedUsers.length === 0) {
-      throw new NotFoundException(`User with id ${id} not found`);
-    }
-
-    return updatedUsers[0];
-  }
-
-  async remove(id: string, reqUser: JwtUser) {
-    if (reqUser.role !== 'admin' && reqUser.id !== id) {
-      throw new UnauthorizedException('You can only delete your data');
-    }
-
-    const usersQuery = this.drizzleService.db
-      .delete(users)
-      .where(eq(users.id, sql.placeholder('id')))
-      .returning(this.userWithtoutPasswordReturn)
-      .prepare('delete_user');
-
-    const deletedUsers = await usersQuery.execute({ id });
-
-    if (deletedUsers.length === 0) {
-      throw new NotFoundException(`User with id ${id} not found`);
-    }
-
-    return deletedUsers[0];
-  }
 }
