@@ -2,12 +2,15 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
+import { CommentsModule } from './comments/comments.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
+import { DrizzleService } from './database/drizzle.service';
+import { PostsModule } from './posts/posts.module';
 
 @Module({
-  imports: [UsersModule, ConfigModule.forRoot(), DatabaseModule.forRootAsync({
+  imports: [UsersModule, CommentsModule, PostsModule, ConfigModule.forRoot(), DatabaseModule.forRootAsync({
     imports: [ConfigModule],
     inject: [ConfigService],
     useFactory: (configService: ConfigService) => ({
@@ -20,6 +23,6 @@ import { AuthModule } from './auth/auth.module';
   }), AuthModule,
 ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, DrizzleService],
 })
 export class AppModule {}
