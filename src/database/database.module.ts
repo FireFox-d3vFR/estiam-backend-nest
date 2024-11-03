@@ -1,27 +1,36 @@
-import { Global, Module } from '@nestjs/common';
-import { ConfigurableDatabaseModule, CONNECTION_POOL, DATABASE_OPTIONS, DatabaseOptions } from './database.module-definition';
+import { DynamicModule, Global, Module } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DrizzleService } from './drizzle.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+export const CONNECTION_POOL = 'CONNECTION_POOL';
 
 @Global()
-@Module({
-    exports: [DrizzleService],
-    providers: [
-        DrizzleService,
-        {
-            provide: CONNECTION_POOL,
-            inject: [DATABASE_OPTIONS],
-            useFactory: (databaseOptions: DatabaseOptions) => {
-                return new Pool({
-                    host: databaseOptions.host,
-                    port: databaseOptions.port,
-                    user: databaseOptions.user,
-                    password: databaseOptions.password,
-                    database: databaseOptions.database
-                });
-            },
-        },
-    ],
-})
-
-export class DatabaseModule extends ConfigurableDatabaseModule {}
+@Module({})
+export class DatabaseModule {
+    static forRootAsync(): DynamicModule {
+        return {
+            module: DatabaseModule,
+            imports: [ConfigModule],
+            providers: [
+                DrizzleService,
+                {
+                    provide: CONNECTION_POOL,
+                    inject: [ConfigService],
+                    useFactory: (ConfigService: ConfigService) => {
+                        const databaseOptions = {
+                            host: ConfigService.get<string>('POSTGRES_HOST') || 'localhost',
+                            port: ConfigService.get<number>('POSTGRES_PORT') || 5432,
+                            user: ConfigService.get<string>('POSTGRES_USER')!,
+                            password: ConfigService.get<string>('POSTGRES_PASSWORD')!,
+                            database: ConfigService.get<string>('POSTGRES_DB')!,
+                        };
+                        console.log("Databse option loaded:", databaseOptions);
+                        return new Pool(databaseOptions);
+                    },
+                },
+            ],
+            exports: [DrizzleService, CONNECTION_POOL],
+        }
+    }
+}
